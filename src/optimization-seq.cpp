@@ -50,8 +50,11 @@ void minimize(itvfun f,  // Function to minimize
     min_ub = fxy.right();
     // Discarding all saved boxes whose minimum lower bound is 
     // greater than the new minimum upper bound
-    auto discard_begin = ml.lower_bound(minimizer{0,0,min_ub,0});
-    ml.erase(discard_begin,ml.end());
+    #pragma omp critical
+    {
+      auto discard_begin = ml.lower_bound(minimizer{0,0,min_ub,0});
+      ml.erase(discard_begin,ml.end());
+    }
   }
 
   // Checking whether the input box is small enough to stop searching.
@@ -59,7 +62,10 @@ void minimize(itvfun f,  // Function to minimize
   // is always split equally along both dimensions
   if (x.width() <= threshold) { 
     // We have potentially a new minimizer
-    ml.insert(minimizer{x,y,fxy.left(),fxy.right()});
+    #pragma omp critical
+    {
+      ml.insert(minimizer{x,y,fxy.left(),fxy.right()});
+    }
     return ;
   }
 
@@ -68,10 +74,21 @@ void minimize(itvfun f,  // Function to minimize
   interval xl, xr, yl, yr;
   split_box(x,y,xl,xr,yl,yr);
 
-  minimize(f,xl,yl,threshold,min_ub,ml);
-  minimize(f,xl,yr,threshold,min_ub,ml);
-  minimize(f,xr,yl,threshold,min_ub,ml);
-  minimize(f,xr,yr,threshold,min_ub,ml);
+  #pragma omp parallel
+  #pragma omp sections
+  {
+    #pragma omp section
+    minimize(f,xl,yl,threshold,min_ub,ml);
+
+    #pragma omp section
+    minimize(f,xl,yr,threshold,min_ub,ml);
+
+    #pragma omp section
+    minimize(f,xr,yl,threshold,min_ub,ml);
+
+    #pragma omp section
+    minimize(f,xr,yr,threshold,min_ub,ml);
+  }
 }
 
 
