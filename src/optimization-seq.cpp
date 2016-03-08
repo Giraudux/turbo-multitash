@@ -8,6 +8,7 @@
   v. 1.0, 2013-02-15
 */
 
+#include <chrono>
 #include <iostream>
 #include <iterator>
 #include <string>
@@ -135,12 +136,15 @@ int main(void)
   // Asking for the threshold below which a box is not split further
   cout << "Precision? ";
   cin >> precision;
-  
+
+  auto start = chrono::high_resolution_clock::now();
   minimize(fun.f,fun.x,fun.y,precision,min_ub,minimums);
-  
+  auto end = chrono::high_resolution_clock::now();
+
   // Displaying all potential minimizers
   copy(minimums.begin(),minimums.end(),
        ostream_iterator<minimizer>(cout,"\n"));    
   cout << "Number of minimizers: " << minimums.size() << endl;
   cout << "Upper bound for minimum: " << min_ub << endl;
+  cout << chrono::duration_cast<chrono::milliseconds>(end-start).count() << " ms" << endl;
 }
