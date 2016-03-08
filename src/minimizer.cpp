@@ -15,9 +15,8 @@
 
 using namespace std;
 
-ostream& operator<<(ostream& os, const minimizer& m)
-{
-  os << boost::format("{(%1%,%2%), [%3%, %4%]}") 
-    % m.xmin % m.ymin % m.lbmin % m.ubmin;
+ostream &operator<<(ostream &os, const minimizer &m) {
+  os << boost::format("{(%1%,%2%), [%3%, %4%]}") % m.xmin % m.ymin % m.lbmin %
+            m.ubmin;
   return os;
 }

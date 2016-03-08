@@ -6,7 +6,7 @@
 
   See:
   Interval analysis. Ramon Moore. Prentice-Hall, 1966.
-  
+
   Author: Frederic Goualard <Frederic.Goualard@univ-nantes.fr>
   v. 1.0, 2013-02-15
  */
@@ -18,9 +18,9 @@
 #include <limits>
 
 class interval {
- public:
+public:
   // Default constructor: [-inf, +inf]
-  interval(); 
+  interval();
   // Double to interval constructor: [v, v]
   interval(double v);
   // Interval [l, r]
@@ -39,18 +39,18 @@ class interval {
   bool empty() const;
 
 private:
-  double& lb(void);
-  double& rb(void);
+  double &lb(void);
+  double &rb(void);
   double bounds[2];
 };
 
-interval operator+(const interval& I1, const interval& I2);
-interval operator-(const interval& I1, const interval& I2);
-interval operator*(const interval& I1, const interval& I2);
+interval operator+(const interval &I1, const interval &I2);
+interval operator-(const interval &I1, const interval &I2);
+interval operator*(const interval &I1, const interval &I2);
 
-interval pow(const interval& I, unsigned int n);
+interval pow(const interval &I, unsigned int n);
 
 // Output
-std::ostream& operator<<(std::ostream& os, const interval& I);
+std::ostream &operator<<(std::ostream &os, const interval &I);
 
 #endif // __interval_h__

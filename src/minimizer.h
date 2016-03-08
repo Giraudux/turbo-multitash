@@ -5,7 +5,7 @@
   a smaller value than the current upper bound.
 
   The minimizer contains the two intervals xmin and ymin defining the box, the
-  lower bound lbmin of the minimum (f(xmin,ymin) is certainly greater 
+  lower bound lbmin of the minimum (f(xmin,ymin) is certainly greater
   or equal to lbmin), and the upper bound ubmin of the minimum (f(xmin,ymin)
   is certainly smaller or equal to ubmin).
 
@@ -29,16 +29,15 @@ struct minimizer {
 };
 
 struct less_minimizer {
-  bool operator()(const minimizer& m1, const minimizer& m2) const
-  {
+  bool operator()(const minimizer &m1, const minimizer &m2) const {
     return m1.lbmin <= m2.lbmin;
   }
 };
 
-std::ostream& operator<<(std::ostream& os, const minimizer& m);
+std::ostream &operator<<(std::ostream &os, const minimizer &m);
 
 // Set of minimizers sorted in increasing value of the lower bound of
 // the minimum.
-typedef std::multiset<minimizer,less_minimizer> minimizer_list;
+typedef std::multiset<minimizer, less_minimizer> minimizer_list;
 
 #endif // __minimizer_h__
