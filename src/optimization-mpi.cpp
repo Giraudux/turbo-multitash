@@ -13,6 +13,9 @@
 #include <iterator>
 #include <string>
 #include <stdexcept>
+
+#include <mpi.h>
+
 #include "interval.h"
 #include "functions.h"
 #include "minimizer.h"
@@ -47,8 +50,8 @@ void minimize(itvfun f,           // Function to minimize
 
   if (fxy.right() < min_ub) { // Current box contains a new minimum?
     min_ub = fxy.right();
-    // Discarding all saved boxes whose minimum lower bound is
-    // greater than the new minimum upper bound
+// Discarding all saved boxes whose minimum lower bound is
+// greater than the new minimum upper bound
 #pragma omp critical
     {
       auto discard_begin = ml.lower_bound(minimizer{0, 0, min_ub, 0});
@@ -60,7 +63,7 @@ void minimize(itvfun f,           // Function to minimize
   // We can consider the width of one dimension only since a box
   // is always split equally along both dimensions
   if (x.width() <= threshold) {
-  // We have potentially a new minimizer
+// We have potentially a new minimizer
 #pragma omp critical
     { ml.insert(minimizer{x, y, fxy.left(), fxy.right()}); }
     return;
@@ -88,22 +91,11 @@ void minimize(itvfun f,           // Function to minimize
   }
 }
 
-int main(void) {
+void read_fun_precision(opt_fun_t &fun, double &precision) {
   cout.precision(16);
-  // By default, the currently known upper bound for the minimizer is +oo
-  double min_ub = numeric_limits<double>::infinity();
-  // List of potential minimizers. They may be removed from the list
-  // if we later discover that their smallest minimum possible is
-  // greater than the new current upper bound
-  minimizer_list minimums;
-  // Threshold at which we should stop splitting a box
-  double precision;
 
   // Name of the function to optimize
   string choice_fun;
-
-  // The information on the function chosen (pointer and initial box)
-  opt_fun_t fun;
 
   bool good_choice;
 
@@ -130,6 +122,30 @@ int main(void) {
   // Asking for the threshold below which a box is not split further
   cout << "Precision? ";
   cin >> precision;
+}
+
+int main(int argc, char *argv[]) {
+  int gsize, rank;
+
+  MPI_Init(&argc, &argv);
+  MPI_Comm_size(MPI_COMM_WORLD, &gsize);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+  // By default, the currently known upper bound for the minimizer is +oo
+  double min_ub = numeric_limits<double>::infinity();
+  // List of potential minimizers. They may be removed from the list
+  // if we later discover that their smallest minimum possible is
+  // greater than the new current upper bound
+  minimizer_list minimums;
+  // Threshold at which we should stop splitting a box
+  double precision;
+
+  // The information on the function chosen (pointer and initial box)
+  opt_fun_t fun;
+
+  if (rank == 0) {
+    read_fun_precision(fun, precision);
+  }
 
   auto start = chrono::high_resolution_clock::now();
   minimize(fun.f, fun.x, fun.y, precision, min_ub, minimums);
@@ -142,4 +158,8 @@ int main(void) {
   cout << "Upper bound for minimum: " << min_ub << endl;
   cout << chrono::duration_cast<chrono::milliseconds>(end - start).count()
        << " ms" << endl;
+
+  MPI_Finalize();
+
+  return 0;
 }
