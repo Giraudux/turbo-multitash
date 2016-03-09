@@ -10,14 +10,14 @@
 # Added variable BINROOT 
 .PHONY: clean
 
-BINROOT=/comptes/goualard-f/local/bin
+PATH := $(PATH):/comptes/goualard-f/local/bin
 
 COMMON_SOURCES = interval.cpp minimizer.cpp functions.cpp
 COMMON_OBJECTS = $(COMMON_SOURCES:.cpp=.o)
 
-CXXFLAGS = -std=gnu++0x -Wall -I/comptes/goualard-f/local/include -fopenmp
+CXXFLAGS = -std=c++11 -Wall -I/comptes/goualard-f/local/include -fopenmp
 
-MPICXX = $(BINROOT)/mpic++
+MPICXX = mpic++
 
 
 all: optimization-seq optimization-mpi
