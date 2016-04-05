@@ -146,9 +146,11 @@ int main(int argc, char *argv[]) {
 
   if (rank == 0) {
     read_fun_precision(fun, precision);
+    
   }
   
-  //***************************scatter****************************************
+  
+  //********************************scatter****************************************
   /*
   int MPI_Scatter(void *sendbuf, int sendcount, MPI_Datatype sendtype,
     void *recvbuf, int recvcount, MPI_Datatype recvtype, int root,
@@ -178,7 +180,7 @@ comm
   auto end = chrono::high_resolution_clock::now();  
   
   //*********************************reduce min******************************************
-
+//page 94 du cours de Mr Goualard
 
 /*
 int MPI_Reduce(void *sendbuf, void *recvbuf, int count,

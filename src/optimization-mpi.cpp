@@ -126,6 +126,7 @@ void read_fun_precision(opt_fun_t &fun, double &precision) {
 
 int main(int argc, char *argv[]) {
   int gsize, rank;
+  // numprocs ?
 
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &gsize);
@@ -145,6 +146,7 @@ int main(int argc, char *argv[]) {
 
   if (rank == 0) {
     read_fun_precision(fun, precision);
+    //+ envoie aux autres machines
   }
 
   auto start = chrono::high_resolution_clock::now();
