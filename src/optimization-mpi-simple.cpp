@@ -242,6 +242,7 @@ void tm_min_ub_receiver() {
         continue;
       }
     }
+
     status = MPI_Bcast(&new_min_ub, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Error_string(status, error_str, &error_len);
     syslog(LOG_INFO, "tm_min_ub_receiver: MPI_Bcast: %s", error_str);
@@ -304,6 +305,9 @@ int main(int argc, char *argv[]) {
   tm_min_ub = numeric_limits<double>::infinity();
 
   if (tm_rank == 0) {
+    thread box_provider(tm_box_provider);
+    box_provider.detach();
+
     tm_read_fun_precision(fun, precision);
     memcpy(buff, &fun, sizeof(fun));
     memcpy(buff + sizeof(fun), &precision, sizeof(precision));
@@ -317,6 +321,14 @@ int main(int argc, char *argv[]) {
     memcpy(&fun, buff, sizeof(fun));
     memcpy(&precision, buff + sizeof(fun), sizeof(precision));
   }
+
+  thread min_ub_receiver(tm_min_ub_receiver);
+  min_ub_receiver.detach();
+
+  thread min_ub_sender(tm_min_ub_sender);
+  min_ub_sender.detach();
+
+  this_thread::sleep_for(chrono::seconds(1));
 
   auto start = chrono::high_resolution_clock::now();
 
