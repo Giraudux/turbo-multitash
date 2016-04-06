@@ -9,12 +9,14 @@
 */
 
 #include <chrono>
+#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <string>
 #include <stdexcept>
 
 #include <mpi.h>
+#include <syslog.h>
 
 #include "interval.h"
 #include "functions.h"
@@ -125,7 +127,8 @@ void read_fun_precision(opt_fun_t &fun, double &precision) {
 }
 
 int main(int argc, char *argv[]) {
-  int gsize, rank;
+  int gsize, rank, status;
+  char buff[sizeof(opt_fun_t) + sizeof(double)];
   // numprocs ?
 
   MPI_Init(&argc, &argv);
@@ -133,7 +136,8 @@ int main(int argc, char *argv[]) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
   // By default, the currently known upper bound for the minimizer is +oo
-  double min_ub = numeric_limits<double>::infinity();
+  double min_ub;
+  double local_min_ub = numeric_limits<double>::infinity();
   // List of potential minimizers. They may be removed from the list
   // if we later discover that their smallest minimum possible is
   // greater than the new current upper bound
@@ -146,7 +150,15 @@ int main(int argc, char *argv[]) {
 
   if (rank == 0) {
     read_fun_precision(fun, precision);
-    
+    memcpy(buff, &fun, sizeof(fun));
+    memcpy(buff + sizeof(fun), &precision, sizeof(precision));
+  }
+
+  status = MPI_Bcast(buff, sizeof(buff), MPI_BYTE, 0, MPI_COMM_WORLD);
+
+  if(rank != 0) {
+    memcpy(&fun, buff, sizeof(fun));
+    memcpy(&precision, buff + sizeof(fun), sizeof(precision));
   }
   
   
@@ -176,7 +188,7 @@ comm
   
   
   auto start = chrono::high_resolution_clock::now();
-  minimize(fun.f, fun.x, fun.y, precision, min_ub, minimums); 
+  minimize(fun.f, fun.x, fun.y, precision, local_min_ub, minimums);
   auto end = chrono::high_resolution_clock::now();  
   
   //*********************************reduce min******************************************
@@ -201,7 +213,7 @@ comm
     
 */
 
-//MPI_Reduce(&local_min, &min, int count, MPI_Datatype datatype, MPI_MIN, 0, MPI_COMM_WORLD);
+  status = MPI_Reduce(&local_min_ub, &min_ub, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
 
 
   if (rank == 0) {
