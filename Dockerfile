@@ -3,7 +3,7 @@ FROM debian
 MAINTAINER Alexis Giraudet <https://github.com/Giraudux>
 
 RUN apt-get -y update && \
-    apt-get -y install build-essential git mpich openssh-server rsyslog
+    apt-get -y install build-essential git libboost-dev mpich openssh-server rsyslog
 RUN useradd -m mpi && \
     echo mpi:mpi | chpasswd
 RUN touch /var/log/user.log

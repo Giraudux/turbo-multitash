@@ -8,12 +8,18 @@
   v. 1.0, 2013-02-15
 */
 
+#define EXTRA_DEPTH 0
+
+#include <condition_variable>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <iterator>
-#include <string>
+#include <mutex>
 #include <stdexcept>
+#include <string>
+#include <thread>
 
 #include <mpi.h>
 #include <syslog.h>
@@ -23,6 +29,18 @@
 #include "minimizer.h"
 
 using namespace std;
+
+enum tm_tag_e { TM_TAG_MIN_UB, TM_TAG_BOX };
+
+//
+int tm_current_box;
+int tm_numprocs;
+int tm_rank;
+double tm_min_ub;
+minimizer_list tm_minimums;
+mutex tm_minimums_mtx;
+mutex tm_min_ub_mtx;
+condition_variable tm_min_ub_cv;
 
 // Split a 2D box into four subboxes by splitting each dimension
 // into two equal subparts
@@ -51,13 +69,17 @@ void minimize(itvfun f,           // Function to minimize
   }
 
   if (fxy.right() < min_ub) { // Current box contains a new minimum?
+    // unique_lock<mutex> ulock(tm_min_ub_mtx);
     min_ub = fxy.right();
-// Discarding all saved boxes whose minimum lower bound is
-// greater than the new minimum upper bound
-#pragma omp critical
+    tm_min_ub_cv.notify_all();
+    // Discarding all saved boxes whose minimum lower bound is
+    // greater than the new minimum upper bound
+    //#pragma omp critical
     {
+      tm_minimums_mtx.lock();
       auto discard_begin = ml.lower_bound(minimizer{0, 0, min_ub, 0});
       ml.erase(discard_begin, ml.end());
+      tm_minimums_mtx.unlock();
     }
   }
 
@@ -65,9 +87,13 @@ void minimize(itvfun f,           // Function to minimize
   // We can consider the width of one dimension only since a box
   // is always split equally along both dimensions
   if (x.width() <= threshold) {
-// We have potentially a new minimizer
-#pragma omp critical
-    { ml.insert(minimizer{x, y, fxy.left(), fxy.right()}); }
+    // We have potentially a new minimizer
+    //#pragma omp critical
+    {
+      tm_minimums_mtx.lock();
+      ml.insert(minimizer{x, y, fxy.left(), fxy.right()});
+      tm_minimums_mtx.unlock();
+    }
     return;
   }
 
@@ -93,7 +119,7 @@ void minimize(itvfun f,           // Function to minimize
   }
 }
 
-void read_fun_precision(opt_fun_t &fun, double &precision) {
+void tm_read_fun_precision(opt_fun_t &fun, double &precision) {
   cout.precision(16);
 
   // Name of the function to optimize
@@ -126,106 +152,208 @@ void read_fun_precision(opt_fun_t &fun, double &precision) {
   cin >> precision;
 }
 
+int tm_max_boxes(int numprocs) {
+  int depth =
+      int(ceil(log(double(numprocs)) / log(double(4.0)))) + int(EXTRA_DEPTH);
+  int boxes = int(pow(double(4.0), double(depth - 1)));
+  return boxes;
+}
+
+void tm_find_box(int rank, int numprocs, const interval &x, const interval &y,
+                 interval &box_x, interval &box_y) {
+  interval xl, xr, yl, yr;
+  int boxes, depth;
+
+  box_x = x;
+  box_y = y;
+  for (depth = int(ceil(log(double(numprocs)) / log(double(4.0)))) +
+               int(EXTRA_DEPTH);
+       depth > 0; depth--) {
+    split_box(box_x, box_y, xl, xr, yl, yr);
+    boxes = int(pow(double(4.0), double(depth - 1)));
+    if (rank < boxes) {
+      box_x = xl;
+      box_y = yl;
+    } else if (rank < 2 * boxes) {
+      box_x = xr;
+      box_y = yl;
+    } else if (rank < 3 * boxes) {
+      box_x = xl;
+      box_y = yr;
+    } else {
+      box_x = xr;
+      box_y = yr;
+    }
+    rank = rank % boxes;
+  }
+}
+
+void tm_box_provider() {
+  int status;
+  char error_str[MPI_MAX_ERROR_STRING];
+  int error_len;
+  MPI_Status status_mpi;
+  int max_boxes;
+  int box;
+
+  syslog(LOG_INFO, "tm_box_provider: start");
+
+  max_boxes = tm_max_boxes(tm_numprocs);
+
+  for (;;) {
+    status = MPI_Recv(&box, 1, MPI_INT, MPI_ANY_SOURCE, TM_TAG_BOX,
+                      MPI_COMM_WORLD, &status_mpi);
+    MPI_Error_string(status, error_str, &error_len);
+    syslog(LOG_INFO, "tm_box_provider: MPI_Recv: %s", error_str);
+
+    if (status == MPI_SUCCESS) {
+      if (tm_current_box < max_boxes) {
+        box = tm_current_box;
+        tm_current_box++;
+      } else {
+        box = -1;
+      }
+
+      status = MPI_Send(&box, 1, MPI_INT, status_mpi.MPI_SOURCE, TM_TAG_BOX,
+                        MPI_COMM_WORLD);
+      MPI_Error_string(status, error_str, &error_len);
+      syslog(LOG_INFO, "tm_box_provider: MPI_Send: %s", error_str);
+    }
+  }
+}
+
+void tm_min_ub_receiver() {
+  int status;
+  char error_str[MPI_MAX_ERROR_STRING];
+  int error_len;
+  MPI_Status status_mpi;
+  double new_min_ub;
+
+  syslog(LOG_INFO, "tm_min_ub_receiver: start");
+
+  for (;;) {
+    if (tm_rank == 0) {
+      status = MPI_Recv(&new_min_ub, 1, MPI_DOUBLE, MPI_ANY_SOURCE,
+                        TM_TAG_MIN_UB, MPI_COMM_WORLD, &status_mpi);
+      MPI_Error_string(status, error_str, &error_len);
+      syslog(LOG_INFO, "tm_min_ub_receiver: MPI_Recv: %s", error_str);
+
+      if (status != MPI_SUCCESS) {
+        continue;
+      }
+    }
+    status = MPI_Bcast(&new_min_ub, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Error_string(status, error_str, &error_len);
+    syslog(LOG_INFO, "tm_min_ub_receiver: MPI_Bcast: %s", error_str);
+
+    if (status == MPI_SUCCESS && new_min_ub < tm_min_ub) {
+      tm_min_ub = new_min_ub;
+      tm_minimums_mtx.lock();
+      auto discard_begin =
+          tm_minimums.lower_bound(minimizer{0, 0, new_min_ub, 0});
+      tm_minimums.erase(discard_begin, tm_minimums.end());
+      tm_minimums_mtx.unlock();
+    }
+  }
+}
+
+void tm_min_ub_sender() {
+  int status;
+  char error_str[MPI_MAX_ERROR_STRING];
+  int error_len;
+  double new_min_ub;
+  unique_lock<mutex> ulock(tm_min_ub_mtx);
+
+  syslog(LOG_INFO, "tm_min_ub_sender: start");
+
+  for (;;) {
+    tm_min_ub_cv.wait(ulock);
+
+    new_min_ub = tm_min_ub;
+    status =
+        MPI_Send(&new_min_ub, 1, MPI_DOUBLE, 0, TM_TAG_MIN_UB, MPI_COMM_WORLD);
+    MPI_Error_string(status, error_str, &error_len);
+    syslog(LOG_INFO, "tm_min_ub_sender: MPI_Send: %s", error_str);
+  }
+}
+
 int main(int argc, char *argv[]) {
-  int gsize, rank, status;
+  int status;
+  char error_str[MPI_MAX_ERROR_STRING];
+  int error_len;
+  MPI_Status status_mpi;
   char buff[sizeof(opt_fun_t) + sizeof(double)];
-  // numprocs ?
-
-  MPI_Init(&argc, &argv);
-  MPI_Comm_size(MPI_COMM_WORLD, &gsize);
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
   // By default, the currently known upper bound for the minimizer is +oo
   double min_ub;
-  double local_min_ub = numeric_limits<double>::infinity();
   // List of potential minimizers. They may be removed from the list
   // if we later discover that their smallest minimum possible is
   // greater than the new current upper bound
-  minimizer_list minimums;
   // Threshold at which we should stop splitting a box
   double precision;
-
   // The information on the function chosen (pointer and initial box)
   opt_fun_t fun;
+  int box;
+  interval box_x, box_y;
 
-  if (rank == 0) {
-    read_fun_precision(fun, precision);
+  openlog(NULL, LOG_CONS | LOG_PID, LOG_USER);
+  MPI_Init(&argc, &argv);
+  MPI_Comm_size(MPI_COMM_WORLD, &tm_numprocs);
+  MPI_Comm_rank(MPI_COMM_WORLD, &tm_rank);
+
+  tm_current_box = tm_numprocs;
+  tm_min_ub = numeric_limits<double>::infinity();
+
+  if (tm_rank == 0) {
+    tm_read_fun_precision(fun, precision);
     memcpy(buff, &fun, sizeof(fun));
     memcpy(buff + sizeof(fun), &precision, sizeof(precision));
   }
 
   status = MPI_Bcast(buff, sizeof(buff), MPI_BYTE, 0, MPI_COMM_WORLD);
+  MPI_Error_string(status, error_str, &error_len);
+  syslog(LOG_INFO, "main: MPI_Bcast: %s", error_str);
 
-  if(rank != 0) {
+  if (tm_rank != 0) {
     memcpy(&fun, buff, sizeof(fun));
     memcpy(&precision, buff + sizeof(fun), sizeof(precision));
   }
-  
-  
-  //********************************scatter****************************************
-  /*
-  int MPI_Scatter(void *sendbuf, int sendcount, MPI_Datatype sendtype,
-    void *recvbuf, int recvcount, MPI_Datatype recvtype, int root,
-    MPI_Comm comm)
 
-sendbuf
-    Address of send buffer (choice, significant only at root). 
-sendcount
-    Number of elements sent to each process (integer, significant only at root). 
-sendtype
-    Datatype of send buffer elements (handle, significant only at root). 
-recvcount
-    Number of elements in receive buffer (integer). 
-recvtype
-    Datatype of receive buffer elements (handle). 
-root
-    Rank of sending process (integer). 
-comm
-    Communicator (handle). 
-*/
-    
-  //MPI_Scatter(/*donnees*/,/*sz/numprocs*/, MPI_DOUBLE, /*partieDuTablocalJecrois*/, /*sz/numprocs*/, MPI_DOUBLE,0/*=root*/, MPI_COMM_WORLD);
-  
-  
   auto start = chrono::high_resolution_clock::now();
-  minimize(fun.f, fun.x, fun.y, precision, local_min_ub, minimums);
-  auto end = chrono::high_resolution_clock::now();  
-  
-  //*********************************reduce min******************************************
-//page 94 du cours de Mr Goualard
 
-/*
-int MPI_Reduce(void *sendbuf, void *recvbuf, int count,
-    MPI_Datatype datatype, MPI_Op op, int root, MPI_Comm comm);
-    
-sendbuf
-    Address of send buffer (choice). 
-count
-    Number of elements in send buffer (integer). 
-datatype
-    Data type of elements of send buffer (handle). 
-op
-    Reduce operation (handle). 
-root
-    Rank of root process (integer). 
-comm
-    Communicator (handle).     
-    
-*/
+  box = tm_rank;
+  while (box >= 0) {
+    tm_find_box(tm_rank, tm_numprocs, fun.x, fun.y, box_x, box_y);
+    minimize(fun.f, box_x, box_y, precision, tm_min_ub, tm_minimums);
 
-  status = MPI_Reduce(&local_min_ub, &min_ub, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+    status = MPI_Send(&box, 1, MPI_INT, 0, TM_TAG_BOX, MPI_COMM_WORLD);
+    MPI_Error_string(status, error_str, &error_len);
+    syslog(LOG_INFO, "main: MPI_Send: %s", error_str);
 
-
-  if (rank == 0) {
- 	  // Displaying all potential minimizers
-	  copy(minimums.begin(), minimums.end(),
-		   ostream_iterator<minimizer>(cout, "\n"));
-	  cout << "Number of minimizers: " << minimums.size() << endl;
-	  cout << "Upper bound for minimum: " << min_ub << endl;
-	  cout << chrono::duration_cast<chrono::milliseconds>(end - start).count()
-		   << " ms" << endl;
+    status =
+        MPI_Recv(&box, 1, MPI_INT, 0, TM_TAG_BOX, MPI_COMM_WORLD, &status_mpi);
+    MPI_Error_string(status, error_str, &error_len);
+    syslog(LOG_INFO, "main: MPI_Recv: %s", error_str);
   }
+
+  status = MPI_Reduce(&tm_min_ub, &min_ub, 1, MPI_DOUBLE, MPI_MIN, 0,
+                      MPI_COMM_WORLD);
+  MPI_Error_string(status, error_str, &error_len);
+  syslog(LOG_INFO, "main: MPI_Reduce: %s", error_str);
+
+  auto end = chrono::high_resolution_clock::now();
+
+  if (tm_rank == 0) {
+    // Displaying all potential minimizers
+    copy(tm_minimums.begin(), tm_minimums.end(),
+         ostream_iterator<minimizer>(cout, "\n"));
+    cout << "Number of minimizers: " << tm_minimums.size() << endl;
+    cout << "Upper bound for minimum: " << min_ub << endl;
+    cout << chrono::duration_cast<chrono::milliseconds>(end - start).count()
+         << " ms" << endl;
+  }
+
   MPI_Finalize();
+  closelog();
 
   return 0;
 }
