@@ -211,9 +211,6 @@ int main(int argc, char *argv[]) {
   memset(fun_buff, 0, TM_MAX_FUNSTR_SIZE);
   memset(buff, 0, TM_BUFF_SIZE);
 
-  syslog(LOG_INFO, "depth = %d", tm_depth(numprocs));
-  syslog(LOG_INFO, "boxes = %d", tm_boxes(numprocs));
-
   if (rank == 0) {
     tm_read_fun_precision(fun_str, precision);
     memcpy(fun_buff, fun_str.c_str(), (fun_str.size() < TM_MAX_FUNSTR_SIZE - 1)
@@ -231,7 +228,7 @@ int main(int argc, char *argv[]) {
 
   status = MPI_Bcast(buff, TM_BUFF_SIZE, MPI_PACKED, 0, MPI_COMM_WORLD);
   MPI_Error_string(status, error_str, &error_len);
-  syslog(LOG_INFO, "MPI_Bcast: %s", error_str);
+  syslog(LOG_INFO, "%d: MPI_Bcast: %s", rank, error_str);
 
   cursor = 0;
   MPI_Unpack(buff, TM_BUFF_SIZE, &cursor, &precision, 1, MPI_DOUBLE,
@@ -244,7 +241,7 @@ int main(int argc, char *argv[]) {
   for (box = rank; box < boxes; box += numprocs) {
     tm_box(box, numprocs, fun.x, fun.y, box_x, box_y);
     syslog(LOG_INFO,
-           "box = %d, x_left = %f, x_right = %f, y_left = %f, y_right = %f",
+           "%d: box = %d, x_left = %f, x_right = %f, y_left = %f, y_right = %f", rank,
            box, box_x.left(), box_x.right(), box_y.left(), box_y.right());
     tm_minimize(fun.f, box_x, box_y, precision, local_min_ub, minimums);
   }
@@ -252,11 +249,11 @@ int main(int argc, char *argv[]) {
   status = MPI_Reduce(&local_min_ub, &min_ub, 1, MPI_DOUBLE, MPI_MIN, 0,
                       MPI_COMM_WORLD);
   MPI_Error_string(status, error_str, &error_len);
-  syslog(LOG_INFO, "MPI_Reduce: %s", error_str);
+  syslog(LOG_INFO, "%d: MPI_Reduce: %s", rank, error_str);
 
   auto end = chrono::high_resolution_clock::now();
 
-  syslog(LOG_INFO, "local_min_ub = %f", local_min_ub);
+  syslog(LOG_INFO, "%d: local_min_ub = %f", rank, local_min_ub);
 
   if (rank == 0) {
     // Displaying all potential minimizers
