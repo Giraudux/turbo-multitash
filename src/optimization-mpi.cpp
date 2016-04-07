@@ -1,5 +1,6 @@
 /**
- * Branch and bound algorithm to find the minimum of continuous binary functions using interval arithmetic.
+ * Branch and bound algorithm to find the minimum of continuous binary functions
+ * using interval arithmetic.
  *
  * OpenMP/MPI version
  *
@@ -30,7 +31,8 @@
 using namespace std;
 
 /**
- * Split a 2D box into four subboxes by splitting each dimension into two equal subparts
+ * Split a 2D box into four subboxes by splitting each dimension into two equal
+ * subparts
  */
 void tm_split_box(const interval &x, const interval &y, interval &xl,
                   interval &xr, interval &yl, interval &yr) {
@@ -51,7 +53,9 @@ void tm_split_box(const interval &x, const interval &y, interval &xl,
  * \param min_ub Current minimum upper bound
  * \param ml List of current minimizers
  */
-void tm_minimize(itvfun f, const interval &x, const interval &y, double threshold, double &min_ub, minimizer_list &ml) // List of current minimizers
+void tm_minimize(itvfun f, const interval &x, const interval &y,
+                 double threshold, double &min_ub,
+                 minimizer_list &ml) // List of current minimizers
 {
   interval fxy = f(x, y);
 

@@ -1,5 +1,6 @@
 /**
- * Branch and bound algorithm to find the minimum of continuous binary functions using interval arithmetic.
+ * Branch and bound algorithm to find the minimum of continuous binary functions
+ * using interval arithmetic.
  *
  * Sequential version
  *
