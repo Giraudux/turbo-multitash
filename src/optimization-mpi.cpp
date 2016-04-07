@@ -1,12 +1,14 @@
-/*
-  Branch and bound algorithm to find the minimum of continuous binary
-  functions using interval arithmetic.
-
-  Sequential version
-
-  Author: Frederic Goualard <Frederic.Goualard@univ-nantes.fr>
-  v. 1.0, 2013-02-15
-*/
+/**
+ * Branch and bound algorithm to find the minimum of continuous binary functions using interval arithmetic.
+ *
+ * OpenMP/MPI version
+ *
+ * Authors: Frederic Goualard <Frederic.Goualard@univ-nantes.fr>
+ *          Alexis Giraudet <Alexis.Giraudet@etu.univ-nantes.fr>
+ *          Dennis Bordet <Dennis.Bordet@etu.univ-nantes.fr>
+ *
+ * v. 3.0, 2016-04-08
+ */
 
 #define TM_EXTRA_DEPTH 0
 
@@ -27,8 +29,9 @@
 
 using namespace std;
 
-// Split a 2D box into four subboxes by splitting each dimension
-// into two equal subparts
+/**
+ * Split a 2D box into four subboxes by splitting each dimension into two equal subparts
+ */
 void tm_split_box(const interval &x, const interval &y, interval &xl,
                   interval &xr, interval &yl, interval &yr) {
   double xm = x.mid();
@@ -39,14 +42,16 @@ void tm_split_box(const interval &x, const interval &y, interval &xl,
   yr = interval(ym, y.right());
 }
 
-// Branch-and-bound minimization algorithm
-void tm_minimize(
-    itvfun f,           // Function to minimize
-    const interval &x,  // Current bounds for 1st dimension
-    const interval &y,  // Current bounds for 2nd dimension
-    double threshold,   // Threshold at which we should stop splitting
-    double &min_ub,     // Current minimum upper bound
-    minimizer_list &ml) // List of current minimizers
+/**
+ * Branch-and-bound minimization algorithm
+ * \param itvfun Function to minimize
+ * \param x Current bounds for 1st dimension
+ * \param y Current bounds for 2nd dimension
+ * \param threshold Threshold at which we should stop splitting
+ * \param min_ub Current minimum upper bound
+ * \param ml List of current minimizers
+ */
+void tm_minimize(itvfun f, const interval &x, const interval &y, double threshold, double &min_ub, minimizer_list &ml) // List of current minimizers
 {
   interval fxy = f(x, y);
 
@@ -97,6 +102,9 @@ void tm_minimize(
   }
 }
 
+/**
+ * Read function and precision parameters on standard input
+ */
 void tm_read_fun_precision(opt_fun_t &fun, double &precision) {
   cout.precision(16);
 
@@ -130,16 +138,25 @@ void tm_read_fun_precision(opt_fun_t &fun, double &precision) {
   cin >> precision;
 }
 
+/**
+ * Return the box depth
+ */
 int tm_depth(int numprocs) {
   return int(ceil(log(double(numprocs)) / log(double(4.0)))) +
          int(TM_EXTRA_DEPTH);
 }
 
+/**
+ * Return the number of boxes
+ */
 int tm_boxes(int numprocs) {
   return int(pow(double(4.0), double(tm_depth(numprocs))));
 }
 
-void tm_box(int rank, int numprocs, const interval &x, const interval &y,
+/**
+ * Find the given box
+ */
+void tm_box(int box, int numprocs, const interval &x, const interval &y,
             interval &box_x, interval &box_y) {
   interval xl, xr, yl, yr;
   int boxes, depth;
@@ -149,24 +166,27 @@ void tm_box(int rank, int numprocs, const interval &x, const interval &y,
   box_y = y;
   for (depth = tm_depth(numprocs); depth > 0; depth--) {
     tm_split_box(box_x, box_y, xl, xr, yl, yr);
-    boxes = boxes / 4;
-    if (rank < boxes) {
+    boxes /= 4;
+    if (box < boxes) {
       box_x = xl;
       box_y = yl;
-    } else if (rank < 2 * boxes) {
+    } else if (box < 2 * boxes) {
       box_x = xr;
       box_y = yl;
-    } else if (rank < 3 * boxes) {
+    } else if (box < 3 * boxes) {
       box_x = xl;
       box_y = yr;
     } else {
       box_x = xr;
       box_y = yr;
     }
-    rank = rank % boxes;
+    box %= boxes;
   }
 }
 
+/**
+ *
+ */
 int main(int argc, char *argv[]) {
   int numprocs, rank, status;
   char error_str[MPI_MAX_ERROR_STRING];
@@ -203,6 +223,8 @@ int main(int argc, char *argv[]) {
     memcpy(buff_bcast + sizeof(fun), &precision, sizeof(precision));
   }
 
+  auto start = chrono::high_resolution_clock::now();
+
   status =
       MPI_Bcast(buff_bcast, sizeof(buff_bcast), MPI_BYTE, 0, MPI_COMM_WORLD);
   MPI_Error_string(status, error_str, &error_len);
@@ -212,8 +234,6 @@ int main(int argc, char *argv[]) {
     memcpy(&fun, buff_bcast, sizeof(fun));
     memcpy(&precision, buff_bcast + sizeof(fun), sizeof(precision));
   }
-
-  auto start = chrono::high_resolution_clock::now();
 
   for (box = rank; box < boxes; box += numprocs) {
     tm_box(box, numprocs, fun.x, fun.y, box_x, box_y);
