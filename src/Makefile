@@ -2,12 +2,17 @@
 # "Minimization of a binary continuous function with and
 #  interval-based branch-and-bound procedure"
 #
-# Author: Frederic Goualard <Frederic.Goualard@univ-nantes.fr
-# Version 1.2, 2013-03-11
+# Authors: Frederic Goualard <Frederic.Goualard@univ-nantes.fr
+#          Alexis Giraudet <Alexis.Giraudet@etu.univ-nantes.fr>
+#          Dennis Bordet <Dennis.Bordet@etu.univ-nantes.fr>
+#
+# Version 1.3, 2016-04-08
 #
 # ChangeLog:
 # Added path to Boost headers
-# Added variable BINROOT 
+# Added variable BINROOT
+# Removed variable BINROOT and use PATH instead
+
 .PHONY: clean
 
 PATH := $(PATH):/comptes/goualard-f/local/bin
@@ -29,13 +34,12 @@ optimization-omp: optimization-omp.cpp $(COMMON_OBJECTS)
 	$(CXX) $(CXXFLAGS) -o $@ $< $(COMMON_OBJECTS) -lm
 
 optimization-mpi: optimization-mpi.cpp $(COMMON_OBJECTS)
-	$(MPICXX) $(CXXFLAGS) -fopenmp -o $@ $< $(COMMON_OBJECTS) -lm
+	$(MPICXX) $(CXXFLAGS) -o $@ $< $(COMMON_OBJECTS) -lm
 
 optimization-mpi-simple: optimization-mpi-simple.cpp $(COMMON_OBJECTS)
-	$(MPICXX) $(CXXFLAGS) -fopenmp -o $@ $< $(COMMON_OBJECTS) -lm
+	$(MPICXX) $(CXXFLAGS) -o $@ $< $(COMMON_OBJECTS) -lm
 
 $(COMMON_OBJECTS): %.o: %.cpp %.h
-
 
 clean:
 	-rm -f optimization-seq optimization-omp optimization-mpi optimization-mpi-simple $(COMMON_OBJECTS)

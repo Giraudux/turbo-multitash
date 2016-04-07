@@ -12,6 +12,9 @@
  */
 
 #define TM_EXTRA_DEPTH 0
+#define TM_MAX_DOUBLE_SIZE 16
+#define TM_MAX_FUNSTR_SIZE 16
+#define TM_BUFF_SIZE TM_MAX_DOUBLE_SIZE + TM_MAX_FUNSTR_SIZE
 
 #include <chrono>
 #include <cmath>
@@ -109,33 +112,19 @@ void tm_minimize(itvfun f, const interval &x, const interval &y,
 /**
  * Read function and precision parameters on standard input
  */
-void tm_read_fun_precision(opt_fun_t &fun, double &precision) {
+void tm_read_fun_precision(string &fun_str, double &precision) {
   cout.precision(16);
-
-  // Name of the function to optimize
-  string choice_fun;
-
-  bool good_choice;
 
   // Asking the user for the name of the function to optimize
   do {
-    good_choice = true;
-
     cout << "Which function to optimize?\n";
     cout << "Possible choices: ";
     for (auto fname : functions) {
       cout << fname.first << " ";
     }
     cout << endl;
-    cin >> choice_fun;
-
-    try {
-      fun = functions.at(choice_fun);
-    } catch (out_of_range) {
-      cerr << "Bad choice" << endl;
-      good_choice = false;
-    }
-  } while (!good_choice);
+    cin >> fun_str;
+  } while (functions.find(fun_str) == functions.end());
 
   // Asking for the threshold below which a box is not split further
   cout << "Precision? ";
@@ -205,7 +194,10 @@ int main(int argc, char *argv[]) {
   double precision;
   // The information on the function chosen (pointer and initial box)
   opt_fun_t fun;
-  char buff_bcast[sizeof(opt_fun_t) + sizeof(double)];
+  string fun_str;
+  char fun_buff[TM_MAX_FUNSTR_SIZE];
+  char buff[TM_BUFF_SIZE];
+  int cursor;
   int box, boxes;
   interval box_x, box_y;
 
@@ -216,28 +208,38 @@ int main(int argc, char *argv[]) {
 
   min_ub = local_min_ub = numeric_limits<double>::infinity();
   boxes = tm_boxes(numprocs);
+  memset(fun_buff, 0, TM_MAX_FUNSTR_SIZE);
+  memset(buff, 0, TM_BUFF_SIZE);
 
   syslog(LOG_INFO, "depth = %d", tm_depth(numprocs));
   syslog(LOG_INFO, "boxes = %d", tm_boxes(numprocs));
 
   if (rank == 0) {
-    tm_read_fun_precision(fun, precision);
+    tm_read_fun_precision(fun_str, precision);
+    memcpy(fun_buff, fun_str.c_str(), (fun_str.size() < TM_MAX_FUNSTR_SIZE - 1)
+                                          ? fun_str.size()
+                                          : TM_MAX_FUNSTR_SIZE - 1);
 
-    memcpy(buff_bcast, &fun, sizeof(fun));
-    memcpy(buff_bcast + sizeof(fun), &precision, sizeof(precision));
+    cursor = 0;
+    MPI_Pack(&precision, 1, MPI_DOUBLE, buff, TM_BUFF_SIZE, &cursor,
+             MPI_COMM_WORLD);
+    MPI_Pack(fun_buff, TM_MAX_FUNSTR_SIZE, MPI_CHAR, buff, TM_BUFF_SIZE,
+             &cursor, MPI_COMM_WORLD);
   }
 
   auto start = chrono::high_resolution_clock::now();
 
-  status =
-      MPI_Bcast(buff_bcast, sizeof(buff_bcast), MPI_BYTE, 0, MPI_COMM_WORLD);
+  status = MPI_Bcast(buff, TM_BUFF_SIZE, MPI_PACKED, 0, MPI_COMM_WORLD);
   MPI_Error_string(status, error_str, &error_len);
   syslog(LOG_INFO, "MPI_Bcast: %s", error_str);
 
-  if (rank != 0) {
-    memcpy(&fun, buff_bcast, sizeof(fun));
-    memcpy(&precision, buff_bcast + sizeof(fun), sizeof(precision));
-  }
+  cursor = 0;
+  MPI_Unpack(buff, TM_BUFF_SIZE, &cursor, &precision, 1, MPI_DOUBLE,
+             MPI_COMM_WORLD);
+  MPI_Unpack(buff, TM_BUFF_SIZE, &cursor, fun_buff, TM_MAX_FUNSTR_SIZE,
+             MPI_CHAR, MPI_COMM_WORLD);
+
+  fun = functions.at(string(fun_buff));
 
   for (box = rank; box < boxes; box += numprocs) {
     tm_box(box, numprocs, fun.x, fun.y, box_x, box_y);
