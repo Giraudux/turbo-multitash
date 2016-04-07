@@ -8,13 +8,18 @@
   v. 1.0, 2013-02-15
 */
 
+#define TM_EXTRA_DEPTH 0
+
 #include <chrono>
+#include <cmath>
+#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <string>
 #include <stdexcept>
 
 #include <mpi.h>
+#include <syslog.h>
 
 #include "interval.h"
 #include "functions.h"
@@ -24,8 +29,8 @@ using namespace std;
 
 // Split a 2D box into four subboxes by splitting each dimension
 // into two equal subparts
-void split_box(const interval &x, const interval &y, interval &xl, interval &xr,
-               interval &yl, interval &yr) {
+void tm_split_box(const interval &x, const interval &y, interval &xl,
+                  interval &xr, interval &yl, interval &yr) {
   double xm = x.mid();
   double ym = y.mid();
   xl = interval(x.left(), xm);
@@ -35,12 +40,13 @@ void split_box(const interval &x, const interval &y, interval &xl, interval &xr,
 }
 
 // Branch-and-bound minimization algorithm
-void minimize(itvfun f,           // Function to minimize
-              const interval &x,  // Current bounds for 1st dimension
-              const interval &y,  // Current bounds for 2nd dimension
-              double threshold,   // Threshold at which we should stop splitting
-              double &min_ub,     // Current minimum upper bound
-              minimizer_list &ml) // List of current minimizers
+void tm_minimize(
+    itvfun f,           // Function to minimize
+    const interval &x,  // Current bounds for 1st dimension
+    const interval &y,  // Current bounds for 2nd dimension
+    double threshold,   // Threshold at which we should stop splitting
+    double &min_ub,     // Current minimum upper bound
+    minimizer_list &ml) // List of current minimizers
 {
   interval fxy = f(x, y);
 
@@ -72,26 +78,26 @@ void minimize(itvfun f,           // Function to minimize
   // The box is still large enough => we split it into 4 sub-boxes
   // and recursively explore them
   interval xl, xr, yl, yr;
-  split_box(x, y, xl, xr, yl, yr);
+  tm_split_box(x, y, xl, xr, yl, yr);
 
 #pragma omp parallel
 #pragma omp sections
   {
 #pragma omp section
-    minimize(f, xl, yl, threshold, min_ub, ml);
+    tm_minimize(f, xl, yl, threshold, min_ub, ml);
 
 #pragma omp section
-    minimize(f, xl, yr, threshold, min_ub, ml);
+    tm_minimize(f, xl, yr, threshold, min_ub, ml);
 
 #pragma omp section
-    minimize(f, xr, yl, threshold, min_ub, ml);
+    tm_minimize(f, xr, yl, threshold, min_ub, ml);
 
 #pragma omp section
-    minimize(f, xr, yr, threshold, min_ub, ml);
+    tm_minimize(f, xr, yr, threshold, min_ub, ml);
   }
 }
 
-void read_fun_precision(opt_fun_t &fun, double &precision) {
+void tm_read_fun_precision(opt_fun_t &fun, double &precision) {
   cout.precision(16);
 
   // Name of the function to optimize
@@ -124,44 +130,120 @@ void read_fun_precision(opt_fun_t &fun, double &precision) {
   cin >> precision;
 }
 
+int tm_depth(int numprocs) {
+  return int(ceil(log(double(numprocs)) / log(double(4.0)))) +
+         int(TM_EXTRA_DEPTH);
+}
+
+int tm_boxes(int numprocs) {
+  return int(pow(double(4.0), double(tm_depth(numprocs))));
+}
+
+void tm_box(int rank, int numprocs, const interval &x, const interval &y,
+            interval &box_x, interval &box_y) {
+  interval xl, xr, yl, yr;
+  int boxes, depth;
+
+  boxes = tm_boxes(numprocs);
+  box_x = x;
+  box_y = y;
+  for (depth = tm_depth(numprocs); depth > 0; depth--) {
+    tm_split_box(box_x, box_y, xl, xr, yl, yr);
+    boxes = boxes / 4;
+    if (rank < boxes) {
+      box_x = xl;
+      box_y = yl;
+    } else if (rank < 2 * boxes) {
+      box_x = xr;
+      box_y = yl;
+    } else if (rank < 3 * boxes) {
+      box_x = xl;
+      box_y = yr;
+    } else {
+      box_x = xr;
+      box_y = yr;
+    }
+    rank = rank % boxes;
+  }
+}
+
 int main(int argc, char *argv[]) {
-  int gsize, rank;
-  // numprocs ?
-
-  MPI_Init(&argc, &argv);
-  MPI_Comm_size(MPI_COMM_WORLD, &gsize);
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
+  int numprocs, rank, status;
+  char error_str[MPI_MAX_ERROR_STRING];
+  int error_len;
   // By default, the currently known upper bound for the minimizer is +oo
-  double min_ub = numeric_limits<double>::infinity();
+  double min_ub, local_min_ub;
   // List of potential minimizers. They may be removed from the list
   // if we later discover that their smallest minimum possible is
   // greater than the new current upper bound
   minimizer_list minimums;
   // Threshold at which we should stop splitting a box
   double precision;
-
   // The information on the function chosen (pointer and initial box)
   opt_fun_t fun;
+  char buff_bcast[sizeof(opt_fun_t) + sizeof(double)];
+  int box, boxes;
+  interval box_x, box_y;
+
+  openlog(NULL, LOG_CONS | LOG_PID, LOG_USER);
+  MPI_Init(&argc, &argv);
+  MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+  min_ub = local_min_ub = numeric_limits<double>::infinity();
+  boxes = tm_boxes(numprocs);
+
+  syslog(LOG_INFO, "depth = %d", tm_depth(numprocs));
+  syslog(LOG_INFO, "boxes = %d", tm_boxes(numprocs));
 
   if (rank == 0) {
-    read_fun_precision(fun, precision);
-    //+ envoie aux autres machines
+    tm_read_fun_precision(fun, precision);
+
+    memcpy(buff_bcast, &fun, sizeof(fun));
+    memcpy(buff_bcast + sizeof(fun), &precision, sizeof(precision));
+  }
+
+  status =
+      MPI_Bcast(buff_bcast, sizeof(buff_bcast), MPI_BYTE, 0, MPI_COMM_WORLD);
+  MPI_Error_string(status, error_str, &error_len);
+  syslog(LOG_INFO, "MPI_Bcast: %s", error_str);
+
+  if (rank != 0) {
+    memcpy(&fun, buff_bcast, sizeof(fun));
+    memcpy(&precision, buff_bcast + sizeof(fun), sizeof(precision));
   }
 
   auto start = chrono::high_resolution_clock::now();
-  minimize(fun.f, fun.x, fun.y, precision, min_ub, minimums);
+
+  for (box = rank; box < boxes; box += numprocs) {
+    tm_box(box, numprocs, fun.x, fun.y, box_x, box_y);
+    syslog(LOG_INFO,
+           "box = %d, x_left = %f, x_right = %f, y_left = %f, y_right = %f",
+           box, box_x.left(), box_x.right(), box_y.left(), box_y.right());
+    tm_minimize(fun.f, box_x, box_y, precision, local_min_ub, minimums);
+  }
+
+  status = MPI_Reduce(&local_min_ub, &min_ub, 1, MPI_DOUBLE, MPI_MIN, 0,
+                      MPI_COMM_WORLD);
+  MPI_Error_string(status, error_str, &error_len);
+  syslog(LOG_INFO, "MPI_Reduce: %s", error_str);
+
   auto end = chrono::high_resolution_clock::now();
 
-  // Displaying all potential minimizers
-  copy(minimums.begin(), minimums.end(),
-       ostream_iterator<minimizer>(cout, "\n"));
-  cout << "Number of minimizers: " << minimums.size() << endl;
-  cout << "Upper bound for minimum: " << min_ub << endl;
-  cout << chrono::duration_cast<chrono::milliseconds>(end - start).count()
-       << " ms" << endl;
+  syslog(LOG_INFO, "local_min_ub = %f", local_min_ub);
+
+  if (rank == 0) {
+    // Displaying all potential minimizers
+    copy(minimums.begin(), minimums.end(),
+         ostream_iterator<minimizer>(cout, "\n"));
+    cout << "Number of minimizers: " << minimums.size() << endl;
+    cout << "Upper bound for minimum: " << min_ub << endl;
+    cout << chrono::duration_cast<chrono::milliseconds>(end - start).count()
+         << " ms" << endl;
+  }
 
   MPI_Finalize();
+  closelog();
 
-  return 0;
+  return EXIT_SUCCESS;
 }
