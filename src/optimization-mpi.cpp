@@ -93,18 +93,23 @@ void tm_minimize(itvfun f, const interval &x, const interval &y,
   tm_split_box(x, y, xl, xr, yl, yr);
 
 #pragma omp parallel
-#pragma omp single
+//#pragma omp single
+#pragma omp sections
   {
-#pragma omp task
+//#pragma omp task
+#pragma omp section
     tm_minimize(f, xl, yl, threshold, min_ub, ml);
 
-#pragma omp task
+//#pragma omp task
+#pragma omp section
     tm_minimize(f, xl, yr, threshold, min_ub, ml);
 
-#pragma omp task
+//#pragma omp task
+#pragma omp section
     tm_minimize(f, xr, yl, threshold, min_ub, ml);
 
-#pragma omp task
+//#pragma omp task
+#pragma omp section
     tm_minimize(f, xr, yr, threshold, min_ub, ml);
   }
 }
@@ -207,13 +212,15 @@ int main(int argc, char *argv[]) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
   //omp_set_nested(?);
-  // omp_set_max_active_levels(?);
+  //omp_set_max_active_levels(?);
 
+  // init
   min_ub = local_min_ub = numeric_limits<double>::infinity();
   boxes = tm_boxes(numprocs);
   memset(fun_buff, 0, TM_MAX_FUNSTR_SIZE);
   memset(buff, 0, TM_BUFF_SIZE);
 
+  // read user input and pack data
   if (rank == 0) {
     tm_read_fun_precision(fun_str, precision);
     memcpy(fun_buff, fun_str.c_str(), (fun_str.size() < TM_MAX_FUNSTR_SIZE - 1)
@@ -229,10 +236,12 @@ int main(int argc, char *argv[]) {
 
   auto start = chrono::high_resolution_clock::now();
 
+  // broadcast problem data
   status = MPI_Bcast(buff, TM_BUFF_SIZE, MPI_PACKED, 0, MPI_COMM_WORLD);
   MPI_Error_string(status, error_str, &error_len);
   syslog(LOG_INFO, "%d: MPI_Bcast: %s", rank, error_str);
 
+   // unpack data
   cursor = 0;
   MPI_Unpack(buff, TM_BUFF_SIZE, &cursor, &precision, 1, MPI_DOUBLE,
              MPI_COMM_WORLD);
@@ -241,6 +250,7 @@ int main(int argc, char *argv[]) {
 
   fun = functions.at(string(fun_buff));
 
+  // minimize boxes
   for (box = rank; box < boxes; box += numprocs) {
     tm_box(box, numprocs, fun.x, fun.y, box_x, box_y);
     syslog(LOG_INFO,
@@ -249,6 +259,7 @@ int main(int argc, char *argv[]) {
     tm_minimize(fun.f, box_x, box_y, precision, local_min_ub, minimums);
   }
 
+  // reduce minimum
   status = MPI_Reduce(&local_min_ub, &min_ub, 1, MPI_DOUBLE, MPI_MIN, 0,
                       MPI_COMM_WORLD);
   MPI_Error_string(status, error_str, &error_len);

@@ -121,18 +121,23 @@ void tm_minimize(itvfun f, const interval &x, const interval &y,
   tm_split_box(x, y, xl, xr, yl, yr);
 
 #pragma omp parallel
-#pragma omp single
+//#pragma omp single
+#pragma omp sections
   {
-#pragma omp task
+//#pragma omp task
+#pragma omp section
     tm_minimize(f, xl, yl, threshold, min_ub, ml);
 
-#pragma omp task
+//#pragma omp task
+#pragma omp section
     tm_minimize(f, xl, yr, threshold, min_ub, ml);
 
-#pragma omp task
+//#pragma omp task
+#pragma omp section
     tm_minimize(f, xr, yl, threshold, min_ub, ml);
 
-#pragma omp task
+//#pragma omp task
+#pragma omp section
     tm_minimize(f, xr, yr, threshold, min_ub, ml);
   }
 }
@@ -242,7 +247,7 @@ void tm_box_provider() {
 }
 
 /**
- *
+ * Thread receiving new min ub
  */
 void tm_min_ub_receiver() {
   int status;
@@ -283,7 +288,7 @@ void tm_min_ub_receiver() {
 }
 
 /**
- *
+ * Thread sending new min ub
  */
 void tm_min_ub_sender() {
   int status;
@@ -340,19 +345,23 @@ int main(int argc, char *argv[]) {
   MPI_Comm_rank(MPI_COMM_WORLD, &tm_gl_rank);
 
   //omp_set_nested(?);
-  // omp_set_max_active_levels(?);
+  //omp_set_max_active_levels(?);
 
+  // init
   min_ub = tm_gl_min_ub = numeric_limits<double>::infinity();
   tm_gl_boxes = tm_boxes(tm_gl_numprocs);
   memset(fun_buff, 0, TM_MAX_FUNSTR_SIZE);
   memset(buff, 0, TM_BUFF_SIZE);
 
+  // start receiver thread
   thread min_ub_receiver(tm_min_ub_receiver);
   min_ub_receiver.detach();
 
+  // start sender thread
   thread min_ub_sender(tm_min_ub_sender);
   min_ub_sender.detach();
 
+  // read user input and pack data
   if (tm_gl_rank == 0) {
     thread box_provider(tm_box_provider);
     box_provider.detach();
@@ -371,10 +380,12 @@ int main(int argc, char *argv[]) {
 
   auto start = chrono::high_resolution_clock::now();
 
+  // broadcast problem data
   status = MPI_Bcast(buff, TM_BUFF_SIZE, MPI_PACKED, 0, MPI_COMM_WORLD);
   MPI_Error_string(status, error_str, &error_len);
   syslog(LOG_INFO, "%d: MPI_Bcast: %s", tm_gl_rank, error_str);
 
+  // unpack data
   cursor = 0;
   MPI_Unpack(buff, TM_BUFF_SIZE, &cursor, &precision, 1, MPI_DOUBLE,
              MPI_COMM_WORLD);
@@ -383,6 +394,7 @@ int main(int argc, char *argv[]) {
 
   fun = functions.at(string(fun_buff));
 
+  // minimize boxes
   box = tm_gl_rank;
   while (box >= 0) {
     tm_box(box, tm_gl_numprocs, fun.x, fun.y, box_x, box_y);
@@ -392,16 +404,19 @@ int main(int argc, char *argv[]) {
            box_y.right());
     tm_minimize(fun.f, box_x, box_y, precision, tm_gl_min_ub, tm_gl_minimums);
 
+    // ask new box
     status = MPI_Send(&box, 1, MPI_INT, 0, TM_TAG_BOX, MPI_COMM_WORLD);
     MPI_Error_string(status, error_str, &error_len);
     syslog(LOG_INFO, "%d: main: MPI_Send: %s", tm_gl_rank, error_str);
 
+    // receive new box
     status =
         MPI_Recv(&box, 1, MPI_INT, 0, TM_TAG_BOX, MPI_COMM_WORLD, &status_mpi);
     MPI_Error_string(status, error_str, &error_len);
     syslog(LOG_INFO, "%d: main: MPI_Recv: %s", tm_gl_rank, error_str);
   }
 
+  // reduce minimum
   status = MPI_Reduce(&tm_gl_min_ub, &min_ub, 1, MPI_DOUBLE, MPI_MIN, 0,
                       MPI_COMM_WORLD);
   MPI_Error_string(status, error_str, &error_len);
