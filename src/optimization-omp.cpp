@@ -16,7 +16,6 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
-
 #include "interval.h"
 #include "functions.h"
 #include "minimizer.h"
@@ -50,7 +49,8 @@ void minimize(itvfun f,           // Function to minimize
   }
 
   if (fxy.right() < min_ub) { // Current box contains a new minimum?
-
+  
+//après tests les omp critical ont obtenu de meilleurs résultats que les mutexs
 #pragma omp critical
     {
       min_ub = fxy.right();
@@ -66,8 +66,12 @@ void minimize(itvfun f,           // Function to minimize
   // is always split equally along both dimensions
   if (x.width() <= threshold) {
 // We have potentially a new minimizer
-#pragma omp critical
-    { ml.insert(minimizer{x, y, fxy.left(), fxy.right()}); }
+
+//après tests les omp critical ont obtenu de meilleurs résultats que les mutexs
+#pragma omp critical  
+    {
+      ml.insert(minimizer{x, y, fxy.left(), fxy.right()});
+    }
     return;
   }
 
@@ -77,18 +81,19 @@ void minimize(itvfun f,           // Function to minimize
   split_box(x, y, xl, xr, yl, yr);
 
 #pragma omp parallel
-#pragma omp single
+//après tests les sections ont obtenu de meilleurs résultats que les tasks
+#pragma omp sections
   {
-#pragma omp task
+#pragma omp section
     minimize(f, xl, yl, threshold, min_ub, ml);
 
-#pragma omp task
+#pragma omp section
     minimize(f, xl, yr, threshold, min_ub, ml);
 
-#pragma omp task
+#pragma omp section
     minimize(f, xr, yl, threshold, min_ub, ml);
 
-#pragma omp task
+#pragma omp section
     minimize(f, xr, yr, threshold, min_ub, ml);
   }
 }

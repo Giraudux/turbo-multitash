@@ -25,7 +25,7 @@ CXXFLAGS = -std=c++11 -Wall -I/comptes/goualard-f/local/include -fopenmp
 MPICXX = mpic++
 
 
-all: optimization-seq optimization-omp optimization-omp2 optimization-mpi optimization-mpi2
+all: optimization-seq optimization-omp optimization-omp-imbriq optimization-mpi optimization-mpi2
 
 optimization-seq: optimization-seq.cpp $(COMMON_OBJECTS)
 	$(CXX) $(CXXFLAGS) -o $@ $< $(COMMON_OBJECTS) -lm
@@ -33,7 +33,7 @@ optimization-seq: optimization-seq.cpp $(COMMON_OBJECTS)
 optimization-omp: optimization-omp.cpp $(COMMON_OBJECTS)
 	$(CXX) $(CXXFLAGS) -o $@ $< $(COMMON_OBJECTS) -lm
 
-optimization-omp2: optimization-omp2.cpp $(COMMON_OBJECTS)
+optimization-omp-imbriq: optimization-omp-imbriq.cpp $(COMMON_OBJECTS)
 	$(CXX) $(CXXFLAGS) -o $@ $< $(COMMON_OBJECTS) -lm
 
 optimization-mpi: optimization-mpi.cpp $(COMMON_OBJECTS)
@@ -45,4 +45,4 @@ optimization-mpi2: optimization-mpi2.cpp $(COMMON_OBJECTS)
 $(COMMON_OBJECTS): %.o: %.cpp %.h
 
 clean:
-	-rm -f optimization-seq optimization-omp optimization-omp2 optimization-mpi optimization-mpi2 $(COMMON_OBJECTS)
+	-rm -f optimization-seq optimization-omp optimization-omp-imbriq optimization-mpi optimization-mpi2 $(COMMON_OBJECTS)
