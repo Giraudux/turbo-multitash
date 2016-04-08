@@ -16,9 +16,9 @@
 #define TM_MAX_FUNSTR_SIZE 16
 #define TM_BUFF_SIZE TM_MAX_DOUBLE_SIZE + TM_MAX_FUNSTR_SIZE
 
-#include <condition_variable>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstring>
 #include <iostream>
 #include <iterator>
@@ -121,18 +121,18 @@ void tm_minimize(itvfun f, const interval &x, const interval &y,
   tm_split_box(x, y, xl, xr, yl, yr);
 
 #pragma omp parallel
-#pragma omp sections
+#pragma omp single
   {
-#pragma omp section
+#pragma omp task
     tm_minimize(f, xl, yl, threshold, min_ub, ml);
 
-#pragma omp section
+#pragma omp task
     tm_minimize(f, xl, yr, threshold, min_ub, ml);
 
-#pragma omp section
+#pragma omp task
     tm_minimize(f, xr, yl, threshold, min_ub, ml);
 
-#pragma omp section
+#pragma omp task
     tm_minimize(f, xr, yr, threshold, min_ub, ml);
   }
 }

@@ -8,7 +8,7 @@
  *          Alexis Giraudet <Alexis.Giraudet@etu.univ-nantes.fr>
  *          Dennis Bordet <Dennis.Bordet@etu.univ-nantes.fr>
  *
- * v. 2.0, 2016-04-08
+ * v. 2.1, 2016-04-08
  */
 
 #include <chrono>
@@ -139,6 +139,7 @@ int main(void) {
   cin >> precision;
 
   omp_set_nested(true);
+  // omp_set_max_active_levels(?);
 
   auto start = chrono::high_resolution_clock::now();
   minimize(fun.f, fun.x, fun.y, precision, min_ub, minimums);

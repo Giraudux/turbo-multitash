@@ -21,8 +21,8 @@
 #include <cstring>
 #include <iostream>
 #include <iterator>
-#include <string>
 #include <stdexcept>
+#include <string>
 
 #include <mpi.h>
 #include <syslog.h>
@@ -93,18 +93,18 @@ void tm_minimize(itvfun f, const interval &x, const interval &y,
   tm_split_box(x, y, xl, xr, yl, yr);
 
 #pragma omp parallel
-#pragma omp sections
+#pragma omp single
   {
-#pragma omp section
+#pragma omp task
     tm_minimize(f, xl, yl, threshold, min_ub, ml);
 
-#pragma omp section
+#pragma omp task
     tm_minimize(f, xl, yr, threshold, min_ub, ml);
 
-#pragma omp section
+#pragma omp task
     tm_minimize(f, xr, yl, threshold, min_ub, ml);
 
-#pragma omp section
+#pragma omp task
     tm_minimize(f, xr, yr, threshold, min_ub, ml);
   }
 }
@@ -241,8 +241,8 @@ int main(int argc, char *argv[]) {
   for (box = rank; box < boxes; box += numprocs) {
     tm_box(box, numprocs, fun.x, fun.y, box_x, box_y);
     syslog(LOG_INFO,
-           "%d: box = %d, x_left = %f, x_right = %f, y_left = %f, y_right = %f", rank,
-           box, box_x.left(), box_x.right(), box_y.left(), box_y.right());
+           "%d: box = %d, x_left = %f, x_right = %f, y_left = %f, y_right = %f",
+           rank, box, box_x.left(), box_x.right(), box_y.left(), box_y.right());
     tm_minimize(fun.f, box_x, box_y, precision, local_min_ub, minimums);
   }
 

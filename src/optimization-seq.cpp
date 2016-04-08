@@ -11,14 +11,15 @@
  * v. 1.0, 2016-04-08
  */
 
-#include <chrono>
-#include <iostream>
-#include <iterator>
-#include <string>
-#include <stdexcept>
 #include "interval.h"
 #include "functions.h"
 #include "minimizer.h"
+
+#include <chrono>
+#include <iostream>
+#include <iterator>
+#include <stdexcept>
+#include <string>
 
 using namespace std;
 
