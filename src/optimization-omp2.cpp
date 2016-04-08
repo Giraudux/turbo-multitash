@@ -17,6 +17,8 @@
 #include <stdexcept>
 #include <string>
 
+#include <omp.h>
+
 #include "interval.h"
 #include "functions.h"
 #include "minimizer.h"
@@ -135,6 +137,8 @@ int main(void) {
   // Asking for the threshold below which a box is not split further
   cout << "Precision? ";
   cin >> precision;
+
+  omp_set_nested(true);
 
   auto start = chrono::high_resolution_clock::now();
   minimize(fun.f, fun.x, fun.y, precision, min_ub, minimums);
