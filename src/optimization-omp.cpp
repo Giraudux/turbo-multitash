@@ -14,10 +14,11 @@
 #include <chrono>
 #include <iostream>
 #include <iterator>
-#include <string>
 #include <stdexcept>
-#include "interval.h"
+#include <string>
+
 #include "functions.h"
+#include "interval.h"
 #include "minimizer.h"
 
 using namespace std;
@@ -76,18 +77,17 @@ void minimize(itvfun f,           // Function to minimize
   split_box(x, y, xl, xr, yl, yr);
 
 #pragma omp parallel
-#pragma omp sections
   {
-#pragma omp section
+#pragma omp task
     minimize(f, xl, yl, threshold, min_ub, ml);
 
-#pragma omp section
+#pragma omp task
     minimize(f, xl, yr, threshold, min_ub, ml);
 
-#pragma omp section
+#pragma omp task
     minimize(f, xr, yl, threshold, min_ub, ml);
 
-#pragma omp section
+#pragma omp task
     minimize(f, xr, yr, threshold, min_ub, ml);
   }
 }
