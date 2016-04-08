@@ -339,6 +339,9 @@ int main(int argc, char *argv[]) {
   MPI_Comm_size(MPI_COMM_WORLD, &tm_gl_numprocs);
   MPI_Comm_rank(MPI_COMM_WORLD, &tm_gl_rank);
 
+  //omp_set_nested(?);
+  // omp_set_max_active_levels(?);
+
   min_ub = tm_gl_min_ub = numeric_limits<double>::infinity();
   tm_gl_boxes = tm_boxes(tm_gl_numprocs);
   memset(fun_buff, 0, TM_MAX_FUNSTR_SIZE);

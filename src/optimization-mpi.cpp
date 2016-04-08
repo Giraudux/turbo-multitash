@@ -206,6 +206,9 @@ int main(int argc, char *argv[]) {
   MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
+  //omp_set_nested(?);
+  // omp_set_max_active_levels(?);
+
   min_ub = local_min_ub = numeric_limits<double>::infinity();
   boxes = tm_boxes(numprocs);
   memset(fun_buff, 0, TM_MAX_FUNSTR_SIZE);
